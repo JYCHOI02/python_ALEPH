@@ -1,0 +1,193 @@
+from flask import Flask, render_template, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import timedelta
+from urllib.parse import unquote
+import requests
+
+app = Flask(__name__)
+
+# ★ 환경 설정 ★
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost:3306/my_new_board_db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['JWT_SECRET_KEY'] = 'super-secret-key-change-this'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+
+db = SQLAlchemy(app)
+jwt = JWTManager(app)
+
+# ----------------- Database Models -----------------
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+
+class Post(db.Model):
+    __tablename__ = 'posts'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(50), nullable=False, default='일반')
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    author = db.relationship('User', backref=db.backref('posts', lazy=True))
+
+with app.app_context():
+    db.create_all()
+
+# ----------------- Auth Endpoints -----------------
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({"msg": "이미 존재하는 사용자입니다."}), 400
+    
+    hashed_password = generate_password_hash(data['password'])
+    new_user = User(username=data['username'], password=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"msg": "회원가입 성공"}), 201
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(username=data['username']).first()
+    if not user or not check_password_hash(user.password, data['password']):
+        return jsonify({"msg": "아이디 또는 비밀번호가 잘못되었습니다."}), 401
+    
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify(access_token=access_token, username=user.username)
+
+# ----------------- 웹 페이지 랜더링 라우트 -----------------
+# 1. 메인 게시판 페이지
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# 2. 부산 테마여행 목록 페이지
+@app.route('/public-posts')
+def public_posts_page():
+    return render_template('public_posts.html')
+
+# 3. 부산 테마여행 상세 페이지
+@app.route('/public-posts/<int:uc_seq>')
+def public_detail_page(uc_seq):
+    return render_template('public_detail.html')
+
+# ----------------- 게시판 RESTful API -----------------
+@app.route('/api/posts', methods=['GET'])
+def get_posts():
+    cursor = request.args.get('cursor', type=int)
+    limit = request.args.get('limit', default=5, type=int)
+    search = request.args.get('search', default='', type=str)
+    category = request.args.get('category', default='', type=str)
+
+    query = Post.query
+
+    if category and category != '전체':
+        query = query.filter(Post.category == category)
+
+    if search:
+        query = query.filter((Post.title.like(f'%{search}%')) | (Post.content.like(f'%{search}%')))
+
+    if cursor:
+        query = query.filter(Post.id < cursor)
+
+    posts = query.order_by(Post.id.desc()).limit(limit + 1).all()
+
+    has_more = len(posts) > limit
+    if has_more:
+        posts = posts[:limit]
+        next_cursor = posts[-1].id
+    else:
+        next_cursor = None
+
+    results = []
+    for p in posts:
+        results.append({
+            "id": p.id,
+            "title": p.title,
+            "content": p.content,
+            "category": p.category,
+            "author": p.author.username,
+            "author_id": p.author_id
+        })
+
+    return jsonify({
+        "posts": results,
+        "next_cursor": next_cursor,
+        "has_more": has_more
+    })
+
+@app.route('/api/posts', methods=['POST'])
+@jwt_required()
+def create_post():
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    
+    new_post = Post(
+        title=data['title'],
+        content=data['content'],
+        category=data.get('category', '일반'),
+        author_id=current_user_id
+    )
+    db.session.add(new_post)
+    db.session.commit()
+    return jsonify({"msg": "게시글이 등록되었습니다."}), 201
+
+@app.route('/api/posts/<int:id>', methods=['PUT'])
+@jwt_required()
+def update_post(id):
+    current_user_id = int(get_jwt_identity())
+    post = Post.query.get_or_404(id)
+    
+    if post.author_id != current_user_id:
+        return jsonify({"msg": "권한이 없습니다."}), 403
+
+    data = request.get_json()
+    post.title = data.get('title', post.title)
+    post.content = data.get('content', post.content)
+    post.category = data.get('category', post.category)
+    db.session.commit()
+    
+    return jsonify({"msg": "수정되었습니다."})
+
+@app.route('/api/posts/<int:id>', methods=['DELETE'])
+@jwt_required()
+def delete_post(id):
+    current_user_id = int(get_jwt_identity())
+    post = Post.query.get_or_404(id)
+    
+    if post.author_id != current_user_id:
+        return jsonify({"msg": "권한이 없습니다."}), 403
+
+    db.session.delete(post)
+    db.session.commit()
+    
+    return jsonify({"msg": "삭제되었습니다."})
+
+# ----------------- 부산 테마여행 공공데이터 API -----------------
+@app.route('/api/public/posts', methods=['GET'])
+def get_public_posts():
+    url = "http://apis.data.go.kr/6260000/RecommendedService/getRecommendedKr"
+    
+    # 전달해주셨던 인증키 적용 (+ 기호 변형 방지를 위한 unquote)
+    raw_key = "ifRc9G5E8Oo2n0wFYl+BrOTLybCR1pEWTLRJi/86YguFvXxEEFBdbieOg5FR7L58kK0ifSE0rgjr/k04RyHCOA=="
+    
+    params = {
+        'serviceKey': unquote(raw_key),
+        'numOfRows': '100',
+        'pageNo': '1',
+        'resultType': 'json'
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"msg": "서버 통신 에러 발생", "error": str(e)}), 500
+
+# ⚠️ 서버 실행 구문은 반드시 파일의 최하단에 위치해야 합니다!
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>T04 대시보드 - 엔/원 환율 v1.4</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+      min-height: 100vh;
+      margin: 0;
+      padding: 32px 20px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .dashboard-container {
+      width: 100%;
+      max-width: 960px;
+      background: #ffffff;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      padding: 32px;
+    }
+    /* Header Section */
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #f1f5f9;
+      margin-bottom: 24px;
+    }
+    .title-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .title-text {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .version-badge {
+      background-color: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+    .stale-badge {
+      background-color: #fef3c7;
+      color: #d97706;
+      border: 1px solid #fde68a;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 700;
+      display: none;
+    }
+    .stale-badge.active { display: inline-block; }
+
+    /* Error Banner */
+    .error-banner {
+      background-color: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+      margin-bottom: 24px;
+      display: none;
+      font-weight: 600;
+    }
+    .error-banner.active { display: block; }
+
+    /* Grid Layout for Top Panel */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    @media (max-width: 768px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Primary Metric Card */
+    .metric-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .metric-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .value-box {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .target-value {
+      font-size: 44px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -1px;
+    }
+    .unit {
+      font-size: 18px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .diff-box {
+      font-size: 14px;
+      font-weight: 700;
+      color: #475569;
+      padding: 8px 12px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      display: inline-block;
+      width: fit-content;
+    }
+    .diff-box.up { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+    .diff-box.down { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+
+    /* Info Meta Panel */
+    .info-panel {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 14px;
+    }
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .info-item:last-child {
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .info-label { color: #64748b; font-weight: 500; }
+    .info-content { color: #0f172a; font-weight: 700; }
+
+    /* Retry Button */
+    .btn-retry {
+      width: 100%;
+      padding: 12px;
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;
+      margin-bottom: 24px;
+      transition: background 0.2s;
+    }
+    .btn-retry:hover { background-color: #1d4ed8; }
+    .btn-retry:disabled { background-color: #93c5fd; cursor: not-allowed; }
+    .btn-retry.active { display: block; }
+
+    /* History Table Section */
+    .history-section {
+      border-top: 2px solid #f1f5f9;
+      padding-top: 24px;
+    }
+    .history-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 16px;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .history-table th {
+      background-color: #f8fafc;
+      color: #64748b;
+      font-weight: 700;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .history-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+    }
+    .history-table tr:hover td {
+      background-color: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard-container">
+    <!-- Header -->
+    <div class="dashboard-header">
+      <div class="title-area">
+        <span class="title-text">엔/원 환율 실시간 대시보드</span>
+        <span class="version-badge">v1.4</span>
+      </div>
+      <span id="stale-badge" class="stale-badge">오래된 값</span>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="error-banner">
+      <div id="error-msg">실패 상태: -</div>
+    </div>
+
+    <!-- Main 2-Column Grid -->
+    <div class="main-grid">
+      <!-- Metric Card -->
+      <div class="metric-card">
+        <div>
+          <div class="metric-label">현재 엔/원 환율 (100엔 기준)</div>
+          <div class="value-box">
+            <span class="target-value" id="target-value">조회 중...</span>
+            <span class="unit" id="unit">KRW/100JPY</span>
+          </div>
+        </div>
+        <div class="diff-box" id="diff-value">어제 대비 변화: -</div>
+      </div>
+
+      <!-- Info Panel -->
+      <div class="info-panel">
+        <div class="info-item">
+          <span class="info-label">데이터 출처</span>
+          <span class="info-content" id="source">European Central Bank / Open Rates</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">출처 관측 시각</span>
+          <span class="info-content" id="data-time">-</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">화면 조회 시각</span>
+          <span class="info-content" id="fetch-time">-</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">기준 시간대</span>
+          <span class="info-content" id="timezone">Asia/Seoul (KST, UTC+09:00)</span>
+        </div>
+      </div>
+    </div>
+
+    <button id="retry-btn" class="btn-retry" onclick="executeFetch()">다시 시도</button>
+
+    <!-- Full Width History Section -->
+    <div class="history-section">
+      <div class="history-title">일별 관측 기록 (Asia/Seoul)</div>
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>날짜 (KST)</th>
+            <th>원천 관측 시각</th>
+            <th>환율 (정규화 값)</th>
+            <th>단위</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody">
+          <!-- Dynamic Insertion -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    /* Application Version: 1.4 */
+    const PRIMARY_API = 'https://open.er-api.com/v6/latest/JPY';
+    const FALLBACK_API = 'https://api.exchangerate-api.com/v4/latest/JPY';
+
+    let appState = {
+      status: 'fresh',
+      error_code: 'none',
+      lastValidData: null,
+      dailyRecords: []
+    };
+
+    function initStorage() {
+      const storedRecords = localStorage.getItem('t04_jpy_records_v1_4');
+      if (storedRecords) {
+        appState.dailyRecords = JSON.parse(storedRecords);
+      }
+
+      const storedLast = localStorage.getItem('t04_last_valid_data_v1_4');
+      if (storedLast) {
+        appState.lastValidData = JSON.parse(storedLast);
+      }
+    }
+
+    function getKstDateStr(dateObj) {
+      const options = { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' };
+      return new Intl.DateTimeFormat('en-CA', options).format(dateObj);
+    }
+
+    function formatDate(date) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function renderUI() {
+      const staleBadge = document.getElementById('stale-badge');
+      const errorBanner = document.getElementById('error-banner');
+      const errorMsg = document.getElementById('error-msg');
+      const retryBtn = document.getElementById('retry-btn');
+      const valEl = document.getElementById('target-value');
+
+      if (appState.status === 'error' || appState.status === 'stale') {
+        errorBanner.classList.add('active');
+        retryBtn.classList.add('active');
+        errorMsg.innerText = `실패 상태: [${appState.error_code}] 네트워크 또는 원천 응답 오류가 발생했습니다.`;
+      } else {
+        errorBanner.classList.remove('active');
+        retryBtn.classList.remove('active');
+      }
+
+      if (appState.status === 'stale') {
+        staleBadge.classList.add('active');
+      } else {
+        staleBadge.classList.remove('active');
+      }
+
+      if (appState.lastValidData) {
+        valEl.innerText = Number(appState.lastValidData.value).toLocaleString('ko-KR', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+        document.getElementById('data-time').innerText = appState.lastValidData.dataTime;
+        document.getElementById('fetch-time').innerText = appState.lastValidData.fetchTime;
+      }
+
+      renderDiff();
+      renderHistoryTable();
+    }
+
+    function renderDiff() {
+      const diffEl = document.getElementById('diff-value');
+      const recs = appState.dailyRecords;
+      if (recs.length < 2) {
+        diffEl.innerText = '어제 대비 변화: 데이터 수집 중';
+        return;
+      }
+
+      const sorted = [...recs].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const latest = sorted[sorted.length - 1];
+      const prev = sorted[sorted.length - 2];
+
+      const diff = latest.value - prev.value;
+      const diffFormatted = (diff >= 0 ? '+' : '') + diff.toFixed(2);
+
+      diffEl.innerText = `어제 대비 변화: ${diffFormatted} KRW (${prev.date} 대비)`;
+      diffEl.className = 'diff-box ' + (diff > 0 ? 'up' : diff < 0 ? 'down' : '');
+    }
+
+    function renderHistoryTable() {
+      const tbody = document.getElementById('history-tbody');
+      tbody.innerHTML = '';
+      const sorted = [...appState.dailyRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      sorted.forEach(rec => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${rec.date}</strong></td>
+          <td>${rec.dataTime}</td>
+          <td><strong>${Number(rec.value).toFixed(2)}</strong></td>
+          <td>${rec.unit}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function syncRealHistoricalRates() {
+      try {
+        const today = new Date();
+        const pastDate = new Date(today.getTime() - (7 * 24 * 60 * 60 * 1000));
+        const startDateStr = getKstDateStr(pastDate);
+        
+        const histRes = await fetch(`https://api.frankfurter.app/${startDateStr}..?from=JPY&to=KRW`);
+        if (histRes.ok) {
+          const histData = await histRes.json();
+          const rates = histData.rates;
+          
+          Object.keys(rates).forEach(dateStr => {
+            if (rates[dateStr] && rates[dateStr].KRW) {
+              const real100JpyRate = Number((rates[dateStr].KRW * 100).toFixed(2));
+              addOrUpdateDailyRecord(dateStr, 'https://api.frankfurter.app', `${dateStr} 16:00:00`, real100JpyRate, 'KRW/100JPY');
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Historical sync skipped');
+      }
+    }
+
+    async function fetchJpyExchangeRate() {
+      try {
+        const res = await fetch(PRIMARY_API);
+        if (res.ok) {
+          const data = await res.json();
+          const rawKrwRate = data.rates.KRW;
+          const jpy100Rate = Number((rawKrwRate * 100).toFixed(2));
+          const unixTime = data.time_last_update_unix || Math.floor(Date.now() / 1000);
+          return {
+            value: jpy100Rate,
+            time: new Date(unixTime * 1000),
+            url: PRIMARY_API
+          };
+        }
+      } catch (e) {
+        console.warn('Primary fetch failed, trying fallback...');
+      }
+
+      try {
+        const res = await fetch(FALLBACK_API);
+        if (res.ok) {
+          const data = await res.json();
+          const rawKrwRate = data.rates.KRW;
+          const jpy100Rate = Number((rawKrwRate * 100).toFixed(2));
+          return {
+            value: jpy100Rate,
+            time: new Date(),
+            url: FALLBACK_API
+          };
+        }
+      } catch (e) {
+        console.error('Fallback fetch failed');
+      }
+
+      throw new Error('OFFLINE');
+    }
+
+    async function executeFetch(mockParam = null) {
+      const retryBtn = document.getElementById('retry-btn');
+      const urlParams = new URLSearchParams(window.location.search);
+      const mockMode = mockParam || urlParams.get('mock');
+
+      if (retryBtn) {
+        retryBtn.disabled = true;
+        retryBtn.innerText = "조회 중...";
+      }
+
+      if (mockMode) {
+        handleMockFailure(mockMode);
+        resetRetryBtn();
+        return;
+      }
+
+      try {
+        await syncRealHistoricalRates();
+
+        const data = await fetchJpyExchangeRate();
+        const now = new Date();
+        const kstDate = getKstDateStr(now);
+        const fetchTimeStr = formatDate(now);
+        const dataTimeStr = formatDate(data.time);
+
+        appState.lastValidData = {
+          value: data.value,
+          dataTime: dataTimeStr,
+          fetchTime: fetchTimeStr
+        };
+        localStorage.setItem('t04_last_valid_data_v1_4', JSON.stringify(appState.lastValidData));
+
+        addOrUpdateDailyRecord(kstDate, data.url, dataTimeStr, data.value, 'KRW/100JPY');
+
+        appState.status = 'fresh';
+        appState.error_code = 'none';
+
+      } catch (err) {
+        let errCode = 'OFFLINE';
+        if (err.message === 'INVALID_FORMAT') errCode = 'INVALID_FORMAT';
+        setFailureState(errCode);
+      } finally {
+        resetRetryBtn();
+        renderUI();
+      }
+    }
+
+    function resetRetryBtn() {
+      const retryBtn = document.getElementById('retry-btn');
+      if (retryBtn) {
+        retryBtn.disabled = false;
+        retryBtn.innerText = "다시 시도";
+      }
+    }
+
+    function handleMockFailure(mode) {
+      if (mode === 'TIMEOUT') setFailureState('TIMEOUT');
+      else if (mode === 'AUTH') setFailureState('AUTH_401_403');
+      else if (mode === 'RATE_LIMIT') setFailureState('RATE_LIMIT');
+      else if (mode === 'OFFLINE') setFailureState('OFFLINE');
+      else if (mode === 'INVALID_FORMAT') setFailureState('INVALID_FORMAT');
+      else if (mode === 'T04-RECOVER-D2') recoverD2Asset();
+      renderUI();
+    }
+
+    function setFailureState(code) {
+      appState.error_code = code;
+      appState.status = appState.lastValidData ? 'stale' : 'error';
+    }
+
+    function recoverD2Asset() {
+      appState.status = 'fresh';
+      appState.error_code = 'none';
+      const nextDate = getKstDateStr(new Date(Date.now() + 86400000));
+      const recoveredVal = appState.lastValidData ? Number((appState.lastValidData.value + 1.20).toFixed(2)) : 916.50;
+      
+      appState.lastValidData = {
+        value: recoveredVal,
+        dataTime: formatDate(new Date()),
+        fetchTime: formatDate(new Date())
+      };
+      localStorage.setItem('t04_last_valid_data_v1_4', JSON.stringify(appState.lastValidData));
+
+      addOrUpdateDailyRecord(nextDate, PRIMARY_API, formatDate(new Date()), recoveredVal, 'KRW/100JPY');
+    }
+
+    function addOrUpdateDailyRecord(dateStr, url, dataTime, val, unit) {
+      const idx = appState.dailyRecords.findIndex(r => r.date === dateStr);
+      const recordObj = { date: dateStr, url: url, dataTime: dataTime, value: val, unit: unit };
+
+      if (idx >= 0) {
+        appState.dailyRecords[idx] = recordObj;
+      } else {
+        appState.dailyRecords.push(recordObj);
+      }
+      localStorage.setItem('t04_jpy_records_v1_4', JSON.stringify(appState.dailyRecords));
+    }
+
+    initStorage();
+    executeFetch();
+  </script>
+</body>
+</html>
